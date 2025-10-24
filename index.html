@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ポケモン画像から名前を当てるゲーム</title>
+  <style>
+    :root{--bg:#0f172a;--card:#0b1220;--accent:#ffcb05;--muted:#9ca3af}
+    *{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,'Hiragino Kaku Gothic ProN',Meiryo, sans-serif}
+    body{margin:0;background:linear-gradient(180deg,#071028 0%, #071126 100%);color:#e6eef8;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .app{width:100%;max-width:820px;background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));border-radius:12px;padding:22px;box-shadow:0 6px 30px rgba(2,6,23,0.6);}
+    header{display:flex;align-items:center;justify-content:space-between;padding-bottom:12px}
+    h1{font-size:20px;margin:0}
+    .controls{display:flex;gap:8px;align-items:center}
+    button{background:transparent;border:1px solid rgba(255,255,255,0.06);color:inherit;padding:8px 12px;border-radius:10px;cursor:pointer}
+    button.primary{background:var(--accent);color:#07202b;border:none}
+    .main{display:grid;grid-template-columns:1fr 320px;gap:18px;align-items:start}
+    @media (max-width:860px){.main{grid-template-columns:1fr}}
+    .card{background:var(--card);padding:16px;border-radius:12px}
+    .pokemon-view{display:flex;flex-direction:column;align-items:center;gap:12px}
+    .sprite{width:300px;height:300px;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:10px}
+    .sprite img{max-width:100%;max-height:100%;image-rendering:auto}
+    .input-row{display:flex;gap:8px;margin-top:8px}
+    input[type="text"]{flex:1;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    .hint{color:var(--muted);font-size:13px;margin-top:6px}
+    .info{display:flex;flex-direction:column;gap:8px}
+    .stat{display:flex;justify-content:space-between;font-size:14px;color:var(--muted)}
+    .result{font-weight:700;margin-top:6px}
+    .small{font-size:13px;color:var(--muted)}
+    .footer{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+    .spinner{width:28px;height:28px;border-radius:50%;border:3px solid rgba(255,255,255,0.06);border-top-color:var(--accent);animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>ポケモン画像から名前を当てるゲーム</h1>
+      <div class="controls">
+        <div class="small">スコア: <span id="score">0</span></div>
+        <button id="newBtn" title="次のポケモン">次のポケモン</button>
+        <button id="revealBtn">正解を表示</button>
+      </div>
+    </header>
+
+    <section class="main">
+      <div class="card pokemon-view">
+        <div class="sprite" id="spriteArea">
+          <div class="small" id="loadingText">読み込み中…</div>
+        </div>
+
+        <div style="width:100%">
+          <div class="input-row">
+            <input type="text" id="guessInput" placeholder="ここに名前を入力（英語 / 日本語どちらでも）" autocomplete="off" />
+            <button id="guessBtn" class="primary">答える</button>
+          </div>
+          <div class="hint" id="hintArea">ヒント: —</div>
+          <div class="result" id="resultArea"></div>
+        </div>
+      </div>
+
+      <aside class="card info">
+        <div>
+          <div class="stat"><span>ポケモンNo</span><span id="pokeId">—</span></div>
+          <div class="stat"><span>名前（英語）</span><span id="pokeNameEn">—</span></div>
+          <div class="stat"><span>名前（日本語）</span><span id="pokeNameJp">—</span></div>
+          <div class="stat"><span>タイプ</span><span id="pokeTypes">—</span></div>
+        </div>
+
+        <div style="margin-top:8px">
+          <div class="small">操作:</div>
+          <ul class="small" style="margin:6px 0 0 18px;padding:0">
+            <li>入力量は大文字小文字を区別しません</li>
+            <li>英語と日本語の両方に対応（PokeAPIのデータに依存）</li>
+            <li>正解を表示すると画像にグレイアウトし正解を示します</li>
+          </ul>
+        </div>
+
+        <div class="footer">
+          <div class="small">ヒントを使う: <button id="hintBtn">タイプを表示</button></div>
+          <div id="loadingIndicator" style="display:none"><div class="spinner"></div></div>
+        </div>
+      </aside>
+    </section>
+  </div>
+
+  <script>
+    const spriteArea = document.getElementById('spriteArea');
+    const guessInput = document.getElementById('guessInput');
+    const guessBtn = document.getElementById('guessBtn');
+    const newBtn = document.getElementById('newBtn');
+    const revealBtn = document.getElementById('revealBtn');
+    const hintBtn = document.getElementById('hintBtn');
+    const hintArea = document.getElementById('hintArea');
+    const resultArea = document.getElementById('resultArea');
+    const scoreEl = document.getElementById('score');
+    const pokeIdEl = document.getElementById('pokeId');
+    const pokeNameEnEl = document.getElementById('pokeNameEn');
+    const pokeNameJpEl = document.getElementById('pokeNameJp');
+    const pokeTypesEl = document.getElementById('pokeTypes');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+
+    let current = null;
+    let score = 0;
+    const MIN_ID = 1;
+    const MAX_ID = 1010;
+
+    function setLoading(on){
+      loadingIndicator.style.display = on ? 'block' : 'none';
+    }
+
+    async function fetchPokemon(id){
+      const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${id}`);
+      if(!res.ok) throw new Error('fetch failed');
+      return res.json();
+    }
+
+    async function fetchPokemonSpecies(id){
+      const res = await fetch(`https://pokeapi.co/api/v2/pokemon-species/${id}`);
+      if(!res.ok) throw new Error('fetch species failed');
+      return res.json();
+    }
+
+    function clearResult(){
+      resultArea.textContent = '';
+      resultArea.style.color = '';
+    }
+
+    function showSprite(url){
+      spriteArea.innerHTML = '';
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = 'pokemon';
+      img.onerror = () => { spriteArea.textContent = '画像を読み込めませんでした'; };
+      spriteArea.appendChild(img);
+    }
+
+    // 正規表現を安全な範囲に修正（日本語・英字・数字・空白・ハイフン許可）
+    function normalizeName(s){
+      return (s||'').toLowerCase().replace(/[^a-zぁ-んァ-ン一-龥0-9\-\s]/g,'').trim();
+    }
+
+    async function loadRandomPokemon(){
+      setLoading(true);
+      clearResult();
+      hintArea.textContent = 'ヒント: —';
+      pokeIdEl.textContent = '—';
+      pokeNameEnEl.textContent = '—';
+      pokeNameJpEl.textContent = '—';
+      pokeTypesEl.textContent = '—';
+      try{
+        spriteArea.innerHTML = '<div class="spinner"></div>';
+        const id = Math.floor(Math.random() * (MAX_ID - MIN_ID + 1)) + MIN_ID;
+        const p = await fetchPokemon(id);
+        let imageUrl = p.sprites.other['official-artwork'].front_default || p.sprites.front_default || '';
+        const species = await fetchPokemonSpecies(id);
+        const names = species.names || [];
+        const jpEntry = names.find(n => n.language && (n.language.name === 'ja-Hrkt' || n.language.name === 'ja'));
+        const nameJp = jpEntry ? jpEntry.name : '';
+        const types = (p.types || []).map(t => t.type.name);
+
+        current = { id, nameEn: p.name || '', nameJp: nameJp || '', types, imageUrl };
+
+        pokeIdEl.textContent = `#${id}`;
+        pokeNameEnEl.textContent = current.nameEn || '—';
+        pokeNameJpEl.textContent = current.nameJp || '—';
+        pokeTypesEl.textContent = types.length ? types.join(', ') : '—';
+
+        if(current.imageUrl){
+          showSprite(current.imageUrl);
+        } else {
+          spriteArea.textContent = '画像がありません';
+        }
+
+      }catch(err){
+        console.error(err);
+        spriteArea.textContent = '読み込みエラー。リロードか「次のポケモン」を押してください。';
+      }finally{
+        setLoading(false);
+      }
+    }
+
+    function checkAnswer(){
+      if(!current) return;
+      const guess = normalizeName(guessInput.value);
+      if(!guess){
+        resultArea.textContent = '入力してください。';
+        resultArea.style.color = 'orange';
+        return;
+      }
+      const nameEnNorm = normalizeName(current.nameEn);
+      const nameJpNorm = normalizeName(current.nameJp);
+      if(guess === nameEnNorm || guess === nameJpNorm){
+        resultArea.textContent = '正解！ 🎉';
+        resultArea.style.color = 'lime';
+        score += 1;
+        scoreEl.textContent = score;
+        setTimeout(() => {
+          loadRandomPokemon();
+          guessInput.value = '';
+        }, 900);
+      } else {
+        resultArea.textContent = '違います。もう一度試して！';
+        resultArea.style.color = 'salmon';
+      }
+    }
+
+    function revealAnswer(){
+      if(!current) return;
+      resultArea.textContent = `正解: ${current.nameJp || current.nameEn} (${current.nameEn})`;
+      resultArea.style.color = 'white';
+      const img = spriteArea.querySelector('img');
+      if(img){
+        img.style.filter = 'grayscale(80%) brightness(0.9)';
+        img.style.opacity = '0.75';
+      }
+    }
+
+    guessBtn.addEventListener('click', checkAnswer);
+    guessInput.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') checkAnswer(); });
+    newBtn.addEventListener('click', ()=>{ guessInput.value = ''; loadRandomPokemon(); });
+    revealBtn.addEventListener('click', revealAnswer);
+    hintBtn.addEventListener('click', ()=>{
+      if(!current) return;
+      hintArea.textContent = 'ヒント: タイプ -> ' + (current.types.length? current.types.join(', ') : '—');
+    });
+
+    loadRandomPokemon();
+  </script>
+</body>
+</html>
